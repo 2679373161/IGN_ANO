@@ -83,7 +83,7 @@ model_Rec.apply(weights_init)
 efficient_ti_model = build_efficient_sam_vitt().requires_grad_(False)
 
 def model_train(dataloader):
-    num_epochs = 200 #训练参数
+    num_epochs = 20 #训练参数
     lastepoch = 0 #上次训练参数
     #参数初始化
     optimizer = torch.optim.Adam([{"params": model_Rec.parameters(), "lr": 0.0001}, ], weight_decay=0)
@@ -110,6 +110,9 @@ def model_train(dataloader):
             
             gray_batch = sample_batched["img"].clone()
             bsz = gray_batch.shape[0]
+
+            if bsz <= 1:
+                continue
 
             freq_means_and_stds = get_freq_means_and_stds(gray_batch)
             gray_batch_FF = torch.stack([get_noise(*freq_means_and_stds) for _ in range(bsz)])
@@ -162,7 +165,7 @@ def model_train(dataloader):
         train_loss /= len(sample_batched["img"])
         print(f"Epoch {epoch} loss: {train_loss:.4f}")
         scheduler.step()
-        if epoch % 20 == 0 or e == num_epochs - 1:
+        if epoch % 1 == 0 or e == num_epochs - 1:
             torch.save(model_Rec.state_dict(), os.path.join('./Ano_SAM_1', f"epoch_{epoch}.pckl"))
     print("Train_ok")
 
