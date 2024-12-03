@@ -33,7 +33,25 @@ def weights_init(m):
         m.weight.data.normal_(1.0, 0.02)
         m.bias.data.fill_(0)
 
+def get_freq_means_and_stds(x: Tensor) -> Tuple[Tensor]:
+    freq = torch.fft.fft2(x)
+    real_mean = freq.real.mean(dim=0)
+    real_std = freq.real.std(dim=0)
+    imag_mean = freq.imag.mean(dim=0)
+    imag_std = freq.imag.std(dim=0)
+    return real_mean, real_std, imag_mean, imag_std
 
+def get_noise(
+    real_mean: Tensor,
+    real_std: Tensor,
+    imag_mean: Tensor,
+    imag_std: Tensor,
+) -> Tensor:
+    freq_real = torch.normal(real_mean, real_std)
+    freq_imag = torch.normal(imag_mean, imag_std)
+    freq = freq_real + 1j * freq_imag
+    noise = torch.fft.ifft2(freq)
+    return noise.real
 
 def data_loader_my():
     img_transform = T.Compose([T.Resize((256, 256)),
@@ -52,7 +70,7 @@ def data_loader_my():
                         phase='train',
                         data_transform=train_data_transform,
                         num_task=1)
-    dataloader = DataLoader(dataset, batch_size=3, num_workers=16,
+    dataloader = DataLoader(dataset, batch_size=2, num_workers=16,
                             sampler=SubsetRandomSampler(dataset.sample_indices_in_task[0]), drop_last=False)
     return dataloader
 
@@ -61,7 +79,8 @@ model_Rec_copy = ReconstructiveSubNetworkOri(in_channels=3, out_channels=3).requ
 model_Rec.to(device)
 model_Rec_copy.to(device)
 model_Rec.apply(weights_init)
-model_Rec.load_state_dict(torch.load(os.path.join('./Ano_Try_1', f"epoch_200.pckl"), map_location='cuda:0'))
+# model_Rec.load_state_dict(torch.load(os.path.join('./Ano_Try_1', f"epoch_200.pckl"), map_location='cuda:0'))
+efficient_ti_model = build_efficient_sam_vitt().requires_grad_(False)
 
 def model_train(dataloader):
     num_epochs = 200 #训练参数
@@ -89,18 +108,38 @@ def model_train(dataloader):
         for i_batch, sample_batched in enumerate(dataloader):
             # print("i_batch: " + str(i_batch))
             
-            gray_batch = sample_batched["img"].clone().to(device)
+            gray_batch = sample_batched["img"].clone()
             bsz = gray_batch.shape[0]
-            z = torch.stack([Get_feature_map(gray_batch[I_Index],kernel) for I_Index in range(bsz)])
-            z = z.to(device, memory_format=torch.contiguous_format)
+
+            freq_means_and_stds = get_freq_means_and_stds(gray_batch)
+            gray_batch_FF = torch.stack([get_noise(*freq_means_and_stds) for _ in range(bsz)])
+            gray_batch_FF = gray_batch_FF.to(device, memory_format=torch.contiguous_format)
+
+            z_ori  = efficient_ti_model.get_image_embeddings(
+                gray_batch.detach()
+                ).detach()
+            z_ori = z_ori.to(device, memory_format=torch.contiguous_format)
+            
+            z_FF  = efficient_ti_model.get_image_embeddings(
+                gray_batch_FF.cpu().detach()
+                ).detach()
+            z_FF = z_FF.to(device, memory_format=torch.contiguous_format)
+    
             
             model_Rec_copy.load_state_dict(model_Rec.state_dict())
-            fx = model_Rec(gray_batch)
-            fz = model_Rec(z)
+            fx = model_Rec(z_ori)
+            fz = model_Rec(z_FF)
             f_z = fz.detach()
-            ff_z = model_Rec(f_z)
-            f_fz = model_Rec_copy(fz)
+            f_z_FF = efficient_ti_model.get_image_embeddings(
+                f_z.cpu().detach()
+                ).detach().to(device, memory_format=torch.contiguous_format)
+            ff_z = model_Rec(f_z_FF)
+            fz_FF = efficient_ti_model.get_image_embeddings(
+                fz.cpu().detach()
+                ).detach().to(device, memory_format=torch.contiguous_format)
+            f_fz = model_Rec_copy(fz_FF)
             # compute losses
+            gray_batch = gray_batch.to(device, memory_format=torch.contiguous_format)
             loss_rec = fn.huber_loss(fx, gray_batch, reduction="none").view(bsz, -1).mean(dim=-1)
             loss_idem = fn.huber_loss(f_fz, fz, reduction="mean")
             loss_tight = -fn.huber_loss(ff_z, f_z, reduction="none").view(bsz, -1).mean(dim=-1)
@@ -124,12 +163,11 @@ def model_train(dataloader):
         print(f"Epoch {epoch} loss: {train_loss:.4f}")
         scheduler.step()
         if epoch % 20 == 0 or e == num_epochs - 1:
-            torch.save(model_Rec.state_dict(), os.path.join('/root/autodl-fs/Ano_Try_1', f"epoch_{epoch}.pckl"))
+            torch.save(model_Rec.state_dict(), os.path.join('./Ano_SAM_1', f"epoch_{epoch}.pckl"))
     print("Train_ok")
 
 def model_test(dataloader):
     kernel = torch.ones(3, 3).to(device)
-    efficient_ti_model = build_efficient_sam_vitt()
     model_Rec.train()
     i = 0
     # for i_batch, sample_batched in enumerate(dataloader):
@@ -139,23 +177,6 @@ def model_test(dataloader):
             gray_batch[None, ...]
         ).detach()
     z = z.to(device, memory_format=torch.contiguous_format)
-    # # 根据梯度强度创建畸变权重
-    # distortion_weight = torch.exp(-z[0]**2 / (2 * (0.1**2)))  # 可调整的高斯分布参数
-    # # 生成较大的随机畸变
-    # distortion = torch.randn_like(gray_batch[0]) * 0.9  # 可调整的畸变强度
-    # # 在原始图像上应用畸变权重
-    # corrupted_image_noise = distortion_weight * distortion
-    # corrupted_image_noise = torch.clamp(corrupted_image_noise, 0, 1).unsqueeze(0)
-    # # 确定损坏区域的位置和大小
-    # top_left = (50, 50)  # 左上角坐标
-    # bottom_right = (150, 150)  # 右下角坐标
-    # # top_left_2 = (150, 150)  # 左上角坐标
-    # # bottom_right_2 = (250, 250)  # 右下角坐标
-    # # 将原始图像的相应区域替换为生成的噪声
-    # image_temp = gray_batch.detach()
-    # Temp_z = (1-z).detach()
-    # image_temp[:, :, top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]] = Temp_z[:, :, top_left[0]:bottom_right[0], top_left[1]:bottom_right[1]]
-
 
     fz = model_Rec(z)
    
@@ -182,37 +203,37 @@ def normalize_with_clipping(image, lower_percentile=5, upper_percentile=95):
 if __name__ == "__main__":
 
     dataloader = data_loader_my()
+    model_train(dataloader)
+    # image_temp , fz , ff_z = model_test(dataloader)
+    # # ff_z = model_Rec(ff_z)
+    # # 显示原始图像和损坏后的图像
+    # original_image = image_temp.squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
+    # corrupted_image_out = fz[0].squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
+    # gradient_image = ff_z[0].squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
 
-    image_temp , fz , ff_z = model_test(dataloader)
-    # ff_z = model_Rec(ff_z)
-    # 显示原始图像和损坏后的图像
-    original_image = image_temp.squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
-    corrupted_image_out = fz[0].squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
-    gradient_image = ff_z[0].squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
+    # # 归一化图像
+    # original_image = normalize_with_clipping(original_image)
+    # corrupted_image_out = normalize_with_clipping(corrupted_image_out)
+    # gradient_image = normalize_with_clipping(gradient_image)
 
-    # 归一化图像
-    original_image = normalize_with_clipping(original_image)
-    corrupted_image_out = normalize_with_clipping(corrupted_image_out)
-    gradient_image = normalize_with_clipping(gradient_image)
+    # # 创建图形
+    # plt.figure(figsize=(15, 5))
 
-    # 创建图形
-    plt.figure(figsize=(15, 5))
+    # plt.subplot(1, 3, 1)
+    # plt.imshow(original_image, vmin=0, vmax=1)
+    # plt.title("Original Image")
+    # plt.axis('off')
 
-    plt.subplot(1, 3, 1)
-    plt.imshow(original_image, vmin=0, vmax=1)
-    plt.title("Original Image")
-    plt.axis('off')
+    # plt.subplot(1, 3, 2)
+    # plt.imshow(corrupted_image_out, vmin=0, vmax=1)
+    # plt.title("Corrupted Image")
+    # plt.axis('off')
 
-    plt.subplot(1, 3, 2)
-    plt.imshow(corrupted_image_out, vmin=0, vmax=1)
-    plt.title("Corrupted Image")
-    plt.axis('off')
+    # plt.subplot(1, 3, 3)
+    # plt.imshow(gradient_image, vmin=0, vmax=1)
+    # plt.title("Gradient Image")
+    # plt.axis('off')
 
-    plt.subplot(1, 3, 3)
-    plt.imshow(gradient_image, vmin=0, vmax=1)
-    plt.title("Gradient Image")
-    plt.axis('off')
-
-    # 显示图像
-    plt.tight_layout()
-    plt.show()
+    # # 显示图像
+    # plt.tight_layout()
+    # plt.show()
