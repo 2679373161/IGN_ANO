@@ -198,11 +198,17 @@ def model_test(dataloader):
     return image_temp, fz , f_z , ff_z
 
 # 归一化函数
-def normalize_image(image):
-    image = image - image.min()  # 从最小值减去
-    if image.max() != 0:  # 避免除以零
-        image = image / image.max()  # 归一化到 [0, 1]
-    return image
+def normalize_with_clipping(image, lower_percentile=5, upper_percentile=95):
+    # 计算上下分位数
+    lower_bound = np.percentile(image, lower_percentile)
+    upper_bound = np.percentile(image, upper_percentile)
+    
+    # 剪切
+    image_clipped = np.clip(image, lower_bound, upper_bound)
+    
+    # 归一化
+    image_normalized = (image_clipped - image_clipped.min()) / (image_clipped.max() - image_clipped.min())
+    return image_normalized
 
 if __name__ == "__main__":
 
@@ -216,25 +222,25 @@ if __name__ == "__main__":
     gradient_image = ff_z[0].squeeze(0).detach().cpu().permute(1, 2, 0).numpy()
 
     # 归一化图像
-    original_image = normalize_image(original_image)
-    corrupted_image_out = normalize_image(corrupted_image_out)
-    gradient_image = normalize_image(gradient_image)
+    original_image = normalize_with_clipping(original_image)
+    corrupted_image_out = normalize_with_clipping(corrupted_image_out)
+    gradient_image = normalize_with_clipping(gradient_image)
 
     # 创建图形
     plt.figure(figsize=(15, 5))
 
     plt.subplot(1, 3, 1)
-    plt.imshow(original_image)
+    plt.imshow(original_image, vmin=0, vmax=1)
     plt.title("Original Image")
     plt.axis('off')
 
     plt.subplot(1, 3, 2)
-    plt.imshow(corrupted_image_out)
+    plt.imshow(corrupted_image_out, vmin=0, vmax=1)
     plt.title("Corrupted Image")
     plt.axis('off')
 
     plt.subplot(1, 3, 3)
-    plt.imshow(gradient_image)
+    plt.imshow(gradient_image, vmin=0, vmax=1)
     plt.title("Gradient Image")
     plt.axis('off')
 
