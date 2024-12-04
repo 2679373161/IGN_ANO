@@ -18,7 +18,7 @@ paper code for IGN
 
 <p align="center">
   <a href="https://github.com/2679373161/IGN_ANO">
-    <img src="figs/logo.jpg alt="Logo" width="80" height="80">
+    <img src="figs/logo.jpg"Logo" width="80" height="80">
   </a>
 
   <h3 align="center">基于深度特征重建的缺陷检测算法方法研究</h3>
@@ -70,8 +70,8 @@ paper code for IGN
 git clone https://github.com/2679373161/IGN_ANO
 ```
 2. pip install -r requirements.txt
-3. [Ano_Create.ipynb](Ano_Create.ipynb)使用IGN网络生成局部缺陷
-   [demo_SAM_only.ipynb](demo_SAM_only.ipynb)使用SAM作为特征提取器重建图像
+3. [Ano_Create.ipynb](Ano_Create.ipynb)使用IGN网络生成局部缺陷；
+   [demo_SAM_only.ipynb](demo_SAM_only.ipynb)使用SAM作为特征提取器重建图像；
    [SAM_IGN.ipynb](SAM_IGN.ipynb)使用SAM作为特征提取器结合IGN多次重建图像
 
 
