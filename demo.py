@@ -25,6 +25,8 @@ def load_model(model_name):
         modelOri.load_state_dict(torch.load(os.path.join('./Ano_SAM_1/grid/', "epoch_50.pckl"), map_location='cuda:0'))
     elif model_name == "Bottle":
         modelOri.load_state_dict(torch.load(os.path.join('./Ano_SAM_1/bottle/', "epoch_20.pckl"), map_location='cuda:0'))
+    elif model_name == "ALL":
+        modelOri.load_state_dict(torch.load(os.path.join('./Ano_SAM_1/ALL/', "epoch_5.pckl"), map_location='cuda:0'))
 
 
 def normalize_with_clipping(image, lower_percentile=5, upper_percentile=95):
