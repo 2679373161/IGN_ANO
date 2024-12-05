@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Upload</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #preview, #result {
+            margin-top: 20px;
+            display: none;
+        }
+        #loader {
+            display: none;
+            border: 4px solid #f3f3f3; /* Light grey */
+            border-top: 4px solid #3498db; /* Blue */
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Upload an Image for Processing</h1>
+    <form id="uploadForm" action="/upload" method="post" enctype="multipart/form-data">
+        <label for="modelSelect">Select Model Parameters:</label>
+        <select id="modelSelect" name="model_params" required>
+            <option value="Bottle">Bottle</option>
+            <option value="Grid">Grid</option>
+        </select>
+        <br><br>
+        <input type="file" name="file" accept="image/*" required onchange="previewImage(event)">
+        <input type="submit" value="Upload">
+    </form>
+
+    <div id="loader"></div>
+
+    <div id="preview">
+        <h2>Uploaded Image:</h2>
+        <img id="uploadedImage" src="" alt="Uploaded Image" style="max-width: 300px;">
+    </div>
+
+    <div id="result">
+        <h2>Processed Image:</h2>
+        <img id="processedImage" src="" alt="Processed Image" style="max-width: 300px;">
+    </div>
+
+    <script>
+        function previewImage(event) {
+            const reader = new FileReader();
+            reader.onload = function() {
+                const uploadedImage = document.getElementById('uploadedImage');
+                uploadedImage.src = reader.result;
+                document.getElementById('preview').style.display = 'block';
+            }
+            reader.readAsDataURL(event.target.files[0]);
+        }
+
+        document.getElementById('uploadForm').onsubmit = function() {
+            document.getElementById('loader').style.display = 'inline-block';
+            document.getElementById('result').style.display = 'none';
+        };
+
+        // Add a fetch API to handle the file upload and display the processed image
+        document.getElementById('uploadForm').onsubmit = async function(event) {
+            event.preventDefault(); // Prevent default form submission
+            document.getElementById('loader').style.display = 'inline-block';
+            document.getElementById('result').style.display = 'none';
+
+            const formData = new FormData(this);
+            const response = await fetch('/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            const blob = await response.blob();
+            const processedImageUrl = URL.createObjectURL(blob);
+            document.getElementById('processedImage').src = processedImageUrl;
+            document.getElementById('result').style.display = 'block';
+            document.getElementById('loader').style.display = 'none';
+        };
+    </script>
+</body>
+</html>
